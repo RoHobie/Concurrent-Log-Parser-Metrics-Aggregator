@@ -1,58 +1,79 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
-	"Concurrent-Log-Parser-Metrics-Aggregator/backend/storage" 
+	"os"
+
+	"Concurrent-Log-Parser-Metrics-Aggregator/backend/storage"
 )
 
-func testStorage(name string, s storage.Storage) {
-	fmt.Printf("\n--- Testing %s ---\n", name)
-
-	// Set
-	if err := s.Set("hello", []byte("world")); err != nil {
-		log.Fatalf("Set failed: %v", err)
+func main() {
+	// ensure testdata directory exists
+	baseDir := "./testdata"
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
+		log.Fatalf("failed to create testdata dir: %v", err)
 	}
-	fmt.Println("Set 'hello' = 'world'")
 
-	// Get existing key
-	val, err := s.Get("hello")
+	// init storages
+	fileStore, err := storage.NewFileStorage(baseDir)
 	if err != nil {
-		log.Fatalf("Get failed: %v", err)
-	}
-	fmt.Printf("Get 'hello' = '%s'\n", val)
-
-	// Get missing key
-	_, err = s.Get("missing")
-	if err == storage.ErrNotFound {
-		fmt.Println("Get 'missing' correctly returned ErrNotFound")
-	} else {
-		log.Fatalf("Expected ErrNotFound, got: %v", err)
+		log.Fatalf("failed to init file storage: %v", err)
 	}
 
-	// Delete
-	if err := s.Delete("hello"); err != nil {
-		log.Fatalf("Delete failed: %v", err)
-	}
-	fmt.Println("Deleted 'hello'")
+	memStore := storage.NewInMemoryStorage()
 
-	// Get after delete
-	_, err = s.Get("hello")
-	if err == storage.ErrNotFound {
-		fmt.Println("Get after delete correctly returned ErrNotFound")
-	} else {
-		log.Fatalf("Expected ErrNotFound after delete, got: %v", err)
-	}
+	fmt.Println("---- Testing FileStorage ----")
+	testStorage(fileStore)
+
+	fmt.Println("\n---- Testing InMemoryStorage ----")
+	testStorage(memStore)
 }
 
-func main() {
-	// Test in-memory storage
-	mem := storage.NewInMemoryStorage()
-	testStorage("InMemoryStorage", mem)
+func testStorage(s storage.Storage) {
+	key := "example.txt"
+	value := []byte("hello world")
 
-	// Test file storage
-	file := storage.NewFileStorage("./testdata")
-	testStorage("FileStorage", file)
+	// 1. Ensure key does NOT exist
+	_, err := s.Get(key)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			fmt.Println("OK: key not found initially")
+		} else {
+			fmt.Printf("Unexpected error: %v\n", err)
+		}
+	}
 
-	fmt.Println("\nAll tests passed!")
+	// 2. Set value
+	if err := s.Set(key, value); err != nil {
+		fmt.Printf("Set failed: %v\n", err)
+		return
+	}
+	fmt.Println("OK: Set successful")
+
+	// 3. Get value
+	data, err := s.Get(key)
+	if err != nil {
+		fmt.Printf("Get failed: %v\n", err)
+		return
+	}
+	fmt.Printf("OK: Get successful → %s\n", string(data))
+
+	// 4. Delete key
+	if err := s.Delete(key); err != nil {
+		fmt.Printf("Delete failed: %v\n", err)
+		return
+	}
+	fmt.Println("OK: Delete successful")
+
+	// 5. Confirm deletion
+	_, err = s.Get(key)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			fmt.Println("OK: key not found after delete")
+		} else {
+			fmt.Printf("Unexpected error after delete: %v\n", err)
+		}
+	}
 }
